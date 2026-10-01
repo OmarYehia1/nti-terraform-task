@@ -81,12 +81,6 @@ data "http" "my_public_ip" {
   url = "https://checkip.amazonaws.com"
 }
 
-# Fetch available AWS Availability Zones in the current region
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-
 locals {
   # Clean up the IP address string and format as CIDR (/32)
   my_ip = "${chomp(data.http.my_public_ip.response_body)}/32"
@@ -117,4 +111,44 @@ resource "aws_security_group" "bastion_sg" {
     Name        = "${var.environment}-bastion-sg"
     Environment = var.environment
   }
+}
+
+# 1. Create Elastic IPs (EIP) required for NAT Gateways
+resource "aws_eip" "nat" {
+  count  = var.environment == "prod" ? length(data.aws_availability_zones.available.names) : 1
+  domain = "vpc"
+
+  tags = {
+    Name        = "${var.environment}-eip-${count.index + 1}"
+    Environment = var.environment
+  }
+}
+
+# 2. Create NAT Gateways based on environment
+resource "aws_nat_gateway" "nat" {
+  count         = var.environment == "prod" ? length(data.aws_availability_zones.available.names) : 1
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
+
+  tags = {
+    Name        = "${var.environment}-nat-${count.index + 1}"
+    Environment = var.environment
+  }
+}
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+locals {
+  # Dynamically calculates /24 subnets for every available AZ
+  # Example output: ["10.0.1.0/24", "10.0.2.0/24", ...]
+  public_subnet_cidrs = [
+    for i in range(length(data.aws_availability_zones.available.names)) :
+    cidrsubnet(var.vpc_cidr, 8, i + 1)
+  ]
+
+  private_subnet_cidrs = [
+    for i in range(length(data.aws_availability_zones.available.names)) :
+    cidrsubnet(var.vpc_cidr, 8, i + 10)
+  ]
 }
