@@ -88,7 +88,7 @@ locals {
 
 
 resource "aws_security_group" "bastion_sg" {
-  name        = "${var.environment}-bastion-sg"
+  name_prefix = "${var.environment}-bastion-sg"
   description = "Allow SSH access from my current public IP"
   vpc_id      = aws_vpc.main.id
 
